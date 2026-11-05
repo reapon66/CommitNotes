@@ -1,0 +1,73 @@
+CREATE TABLE app_user (
+ id UUID PRIMARY KEY, name VARCHAR(120) NOT NULL, email VARCHAR(254) NOT NULL UNIQUE,
+ password_hash VARCHAR(100) NOT NULL, active BOOLEAN NOT NULL DEFAULT TRUE,
+ platform_admin BOOLEAN NOT NULL DEFAULT FALSE, theme VARCHAR(8) NOT NULL DEFAULT 'light',
+ accent VARCHAR(7) NOT NULL DEFAULT '#5368d9', created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE reset_token (id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+ token_hash CHAR(64) NOT NULL UNIQUE, expires_at TIMESTAMPTZ NOT NULL, used_at TIMESTAMPTZ);
+CREATE TABLE project (id UUID PRIMARY KEY, name VARCHAR(120) NOT NULL, description TEXT NOT NULL DEFAULT '',
+ created_by UUID NOT NULL REFERENCES app_user(id), created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE project_member (project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+ user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+ role VARCHAR(10) NOT NULL CHECK (role IN ('OWNER','EDITOR','READER')),
+ PRIMARY KEY(project_id,user_id));
+CREATE TABLE folder (id UUID PRIMARY KEY, project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+ parent_id UUID REFERENCES folder(id) ON DELETE SET NULL, name VARCHAR(100) NOT NULL);
+CREATE TABLE tag (id UUID PRIMARY KEY, project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+ name VARCHAR(60) NOT NULL, UNIQUE(project_id,name));
+CREATE TABLE note (id UUID PRIMARY KEY, project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+ folder_id UUID REFERENCES folder(id) ON DELETE SET NULL, title VARCHAR(200) NOT NULL,
+ body TEXT NOT NULL DEFAULT '', favorite BOOLEAN NOT NULL DEFAULT FALSE, template BOOLEAN NOT NULL DEFAULT FALSE,
+ archived_at TIMESTAMPTZ, deleted_at TIMESTAMPTZ, version INT NOT NULL DEFAULT 1,
+ created_by UUID NOT NULL REFERENCES app_user(id), updated_by UUID NOT NULL REFERENCES app_user(id),
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE note_version (id UUID PRIMARY KEY, note_id UUID NOT NULL REFERENCES note(id) ON DELETE CASCADE,
+ version INT NOT NULL, title VARCHAR(200) NOT NULL, body TEXT NOT NULL,
+ edited_by UUID NOT NULL REFERENCES app_user(id), edited_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE(note_id,version));
+CREATE TABLE note_tag (note_id UUID NOT NULL REFERENCES note(id) ON DELETE CASCADE,
+ tag_id UUID NOT NULL REFERENCES tag(id) ON DELETE CASCADE, PRIMARY KEY(note_id,tag_id));
+CREATE TABLE note_link (source_id UUID NOT NULL REFERENCES note(id) ON DELETE CASCADE,
+ target_id UUID NOT NULL REFERENCES note(id) ON DELETE CASCADE, PRIMARY KEY(source_id,target_id));
+CREATE TABLE board (id UUID PRIMARY KEY, project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+ name VARCHAR(120) NOT NULL);
+CREATE TABLE board_column (id UUID PRIMARY KEY, board_id UUID NOT NULL REFERENCES board(id) ON DELETE CASCADE,
+ name VARCHAR(80) NOT NULL, position INT NOT NULL);
+CREATE TABLE task (id UUID PRIMARY KEY, project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+ board_id UUID NOT NULL REFERENCES board(id) ON DELETE CASCADE,
+ column_id UUID NOT NULL REFERENCES board_column(id) ON DELETE RESTRICT,
+ title VARCHAR(200) NOT NULL, description TEXT NOT NULL DEFAULT '',
+ assignee_id UUID REFERENCES app_user(id) ON DELETE SET NULL,
+ due_at TIMESTAMPTZ, priority VARCHAR(10) NOT NULL DEFAULT 'MEDIUM' CHECK (priority IN ('LOW','MEDIUM','HIGH')),
+ position INT NOT NULL DEFAULT 0, completed_at TIMESTAMPTZ,
+ created_by UUID NOT NULL REFERENCES app_user(id), created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE task_step (id UUID PRIMARY KEY, task_id UUID NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+ label VARCHAR(200) NOT NULL, done BOOLEAN NOT NULL DEFAULT FALSE, position INT NOT NULL);
+CREATE TABLE task_note (task_id UUID NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+ note_id UUID NOT NULL REFERENCES note(id) ON DELETE CASCADE, PRIMARY KEY(task_id,note_id));
+CREATE TABLE stored_file (id UUID PRIMARY KEY, project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+ name VARCHAR(255) NOT NULL, mime VARCHAR(100) NOT NULL, size_bytes BIGINT NOT NULL,
+ storage_key UUID NOT NULL UNIQUE, extracted_text TEXT NOT NULL DEFAULT '',
+ uploaded_by UUID NOT NULL REFERENCES app_user(id), created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE file_link (file_id UUID NOT NULL REFERENCES stored_file(id) ON DELETE CASCADE,
+ note_id UUID REFERENCES note(id) ON DELETE CASCADE, task_id UUID REFERENCES task(id) ON DELETE CASCADE,
+ CHECK ((note_id IS NULL) <> (task_id IS NULL)));
+CREATE TABLE reminder (id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+ project_id UUID REFERENCES project(id) ON DELETE CASCADE, note_id UUID REFERENCES note(id) ON DELETE SET NULL,
+ title VARCHAR(200) NOT NULL, description VARCHAR(1000) NOT NULL DEFAULT '', due_at TIMESTAMPTZ NOT NULL,
+ notified_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE push_subscription (id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+ endpoint TEXT NOT NULL UNIQUE, p256dh TEXT NOT NULL, auth_secret TEXT NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE activity (id UUID PRIMARY KEY, project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+ actor_id UUID NOT NULL REFERENCES app_user(id), entity_type VARCHAR(20) NOT NULL,
+ entity_id UUID NOT NULL, action VARCHAR(30) NOT NULL, detail TEXT NOT NULL DEFAULT '',
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE admin_audit (id UUID PRIMARY KEY, admin_id UUID NOT NULL REFERENCES app_user(id),
+ target_user_id UUID REFERENCES app_user(id), action VARCHAR(30) NOT NULL,
+ detail TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE INDEX note_project_search ON note(project_id,updated_at DESC);
+CREATE INDEX task_due ON task(project_id,due_at);
+CREATE INDEX reminder_due ON reminder(due_at) WHERE completed_at IS NULL;
+CREATE INDEX activity_project_time ON activity(project_id,created_at DESC);
+CREATE INDEX stored_file_search ON stored_file USING GIN (to_tsvector('simple', name || ' ' || extracted_text));

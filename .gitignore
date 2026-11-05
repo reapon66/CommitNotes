@@ -1,0 +1,10 @@
+.env
+.deploy/
+**/node_modules/
+**/dist/
+**/target/
+**/.m2/
+**/data/
+.idea/
+.vscode/
+*.log

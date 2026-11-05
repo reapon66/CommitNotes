@@ -1,0 +1,1 @@
+ALTER TABLE app_user ADD COLUMN session_epoch INT NOT NULL DEFAULT 0;

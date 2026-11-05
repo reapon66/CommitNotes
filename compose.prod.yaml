@@ -1,0 +1,23 @@
+services:
+  web:
+    ports: !override []
+    networks:
+      - default
+      - easypanel
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: easypanel
+      traefik.http.routers.commitnotes.rule: Host(`${COMMITNOTES_DOMAIN}`)
+      traefik.http.routers.commitnotes.entrypoints: https
+      traefik.http.routers.commitnotes.tls: "true"
+      traefik.http.routers.commitnotes.tls.certresolver: letsencrypt
+      traefik.http.services.commitnotes.loadbalancer.server.port: "80"
+      traefik.http.routers.commitnotes-http.rule: Host(`${COMMITNOTES_DOMAIN}`)
+      traefik.http.routers.commitnotes-http.entrypoints: http
+      traefik.http.routers.commitnotes-http.middlewares: commitnotes-https
+      traefik.http.middlewares.commitnotes-https.redirectscheme.scheme: https
+      traefik.http.middlewares.commitnotes-https.redirectscheme.permanent: "true"
+
+networks:
+  easypanel:
+    external: true

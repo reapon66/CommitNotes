@@ -1,0 +1,2 @@
+ALTER TABLE reminder ADD COLUMN push_attempts INT NOT NULL DEFAULT 0;
+ALTER TABLE reminder ADD COLUMN push_retry_at TIMESTAMPTZ;
